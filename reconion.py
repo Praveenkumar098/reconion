@@ -6,7 +6,7 @@ import argparse
 import sys
 
 # =========================
-# RECONION METADATA
+# RECONION - Tor Reconn Tool
 # =========================
 VERSION = "1.0"
 
