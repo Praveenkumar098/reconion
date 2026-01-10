@@ -60,31 +60,3 @@ Clone the repository and install the required dependencies:
 git clone https://github.com/Praveenkumar098/reconion.git
 cd reconion
 pip install -r requirements.txt
-python reconion.py
-
-
-Uses Certificate Transparency (crt.sh)
-
-❌ What RECONION Does NOT Do
-❌ No hacking or exploitation
-
-❌ No authentication attacks
-
-❌ No brute force
-
-❌ No port scanning
-
-❌ No illegal interaction
-
-👨‍💻 Developer
-Praveen Kumar
-Cybersecurity & OSINT Enthusiast
-
-GitHub: https://github.com/Praveenkumar098
-
-⭐ Support
-If you find RECONION useful:
-
-⭐ Star the repository
-
-Share it with the OSINT & cybersecurity community
