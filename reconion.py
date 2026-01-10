@@ -2,10 +2,14 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from datetime import datetime
+import argparse
+import sys
 
 # =========================
-# RECONION ASCII LOGO
+# RECONION METADATA
 # =========================
+VERSION = "1.0"
+
 BANNER = r"""
 ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗██╗ ██████╗ ███╗   ██╗
 ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║██║██╔═══██╗████╗  ██║
@@ -40,6 +44,9 @@ def detect_tor_proxy():
     return None, None
 
 
+# =========================
+# CORE FUNCTIONS
+# =========================
 def normalize_url(target):
     if target.endswith(".onion") and not target.startswith("http"):
         return "http://" + target
@@ -100,7 +107,44 @@ def find_subdomains(domain, proxies, tor_enabled):
     return subdomains
 
 
+# =========================
+# MAIN
+# =========================
 def main():
+    parser = argparse.ArgumentParser(
+        description="RECONION - Tor-based OSINT Reconnaissance Tool"
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"RECONION v{VERSION}"
+    )
+
+    parser.add_argument(
+        "-t", "--target",
+        help="Single target (onion / website / API)"
+    )
+
+    parser.add_argument(
+        "-f", "--file",
+        help="Targets file (default: targets.txt)"
+    )
+
+    parser.add_argument(
+        "-o", "--output",
+        default="reconion_results.txt",
+        help="Output file name"
+    )
+
+    parser.add_argument(
+        "--active",
+        action="store_true",
+        help="Save only active targets to output"
+    )
+
+    args = parser.parse_args()
+
     print(BANNER)
 
     proxies, tor_port = detect_tor_proxy()
@@ -109,14 +153,28 @@ def main():
     print(f"[+] Tor Used : {tor_enabled}")
     print(f"[+] Tor Port : {tor_port if tor_enabled else 'N/A'}\n")
 
-    try:
-        with open("targets.txt", "r") as f:
-            targets = f.readlines()
-    except FileNotFoundError:
-        print("[-] targets.txt not found")
-        return
+    targets = []
 
-    with open("reconion_results.txt", "w", encoding="utf-8") as report, \
+    if args.target:
+        targets.append(args.target)
+
+    elif args.file:
+        try:
+            with open(args.file, "r") as f:
+                targets = [line.strip() for line in f if line.strip()]
+        except FileNotFoundError:
+            print("[-] Target file not found")
+            sys.exit(1)
+
+    else:
+        try:
+            with open("targets.txt", "r") as f:
+                targets = [line.strip() for line in f if line.strip()]
+        except FileNotFoundError:
+            print("[-] targets.txt not found")
+            sys.exit(1)
+
+    with open(args.output, "w", encoding="utf-8") as report, \
          open("subdomains.txt", "w", encoding="utf-8") as subs:
 
         report.write("RECONION RECON REPORT\n")
@@ -124,13 +182,12 @@ def main():
         report.write(f"Tor Used  : {tor_enabled}\n")
         report.write(f"Tor Port  : {tor_port if tor_enabled else 'N/A'}\n\n")
 
-        for t in targets:
-            target = t.strip()
-            if not target:
-                continue
-
+        for target in targets:
             print(f"[+] Scanning: {target}")
             data = scan_target(target, proxies, tor_enabled)
+
+            if args.active and data["Status"] != "Active":
+                continue
 
             report.write(f"Target: {target}\n")
             for k, v in data.items():
@@ -139,15 +196,15 @@ def main():
 
             if not target.endswith(".onion"):
                 domain = urlparse(normalize_url(target)).netloc
-                print(f"[+] Finding subdomains for {domain}")
                 subs_found = find_subdomains(domain, proxies, tor_enabled)
                 for s in sorted(subs_found):
                     subs.write(s + "\n")
 
     print("\n✅ RECONION completed")
-    print("📄 reconion_results.txt")
-    print("📄 subdomains.txt")
+    print(f"📄 Output : {args.output}")
+    print("📄 Subdomains : subdomains.txt")
 
 
 if __name__ == "__main__":
     main()
+
