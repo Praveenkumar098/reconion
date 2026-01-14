@@ -1,53 +1,57 @@
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
 from datetime import datetime
 import argparse
+import json
+import csv
 import sys
+import os
 
 # =========================
-# RECONION - Tor Reconn Tool
+# METADATA
 # =========================
-VERSION = "1.0"
+VERSION = "1.4"
 
-BANNER = r"""
-██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗██╗ ██████╗ ███╗   ██╗
-██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║██║██╔═══██╗████╗  ██║
-██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║██║██║   ██║██╔██╗ ██║
-██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║██║██║   ██║██║╚██╗██║
-██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║██║╚██████╔╝██║ ╚████║
-╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝ v1.0
-"""
+KEYWORDS = [
+    "drugs", "carding", "weapons",
+    "malware", "leaks", "crypto",
+    "bitcoin", "hacking"
+]
 
 HEADERS = {
     "User-Agent": "RECONION-OSINT"
 }
 
 # =========================
-# TOR AUTO-DETECTION
+# BANNER (CORRECT)
 # =========================
-def detect_tor_proxy():
+BANNER = r"""
+██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗██╗ ██████╗ ███╗   ██╗
+██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║██║██╔═══██╗████╗  ██║
+██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║██║██║   ██║██╔██╗ ██║
+██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║██║██║   ██║██║╚██╗ ██║
+██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║██║╚██████╔╝██║ ╚████║
+╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝ v1.4
+"""
+
+# =========================
+# TOR DETECTION
+# =========================
+def detect_tor():
     for port in [9050, 9150]:
         proxies = {
             "http": f"socks5h://127.0.0.1:{port}",
             "https": f"socks5h://127.0.0.1:{port}"
         }
         try:
-            requests.get(
-                "https://check.torproject.org",
-                proxies=proxies,
-                timeout=8
-            )
+            requests.get("https://check.torproject.org", proxies=proxies, timeout=8)
             return proxies, port
         except:
             continue
     return None, None
 
 
-# =========================
-# CORE FUNCTIONS
-# =========================
-def normalize_url(target):
+def normalize(target):
     if target.endswith(".onion") and not target.startswith("http"):
         return "http://" + target
     if not target.startswith("http"):
@@ -55,28 +59,83 @@ def normalize_url(target):
     return target
 
 
-def scan_target(target, proxies, tor_enabled):
-    url = normalize_url(target)
-    result = {}
+# =========================
+# ANALYSIS FUNCTIONS
+# =========================
+def keyword_scan(text):
+    return [k for k in KEYWORDS if k in text.lower()]
+
+
+def calculate_risk(target, keywords, is_api):
+    score = 0
+    if target.endswith(".onion"):
+        score += 2
+    if keywords:
+        score += 2
+    if is_api:
+        score += 1
+
+    if score >= 4:
+        return "HIGH"
+    elif score >= 2:
+        return "MEDIUM"
+    return "LOW"
+
+
+def take_screenshot(url, filename):
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.firefox.options import Options
+
+        os.makedirs("screenshots", exist_ok=True)
+
+        options = Options()
+        options.add_argument("--headless")
+
+        driver = webdriver.Firefox(options=options)
+        driver.get(url)
+        driver.save_screenshot(filename)
+        driver.quit()
+
+        return "Captured"
+    except:
+        return "Skipped"
+
+
+# =========================
+# MAIN SCAN
+# =========================
+def scan_target(target, proxies, screenshot):
+    url = normalize(target)
+    result = {"Target": target}
 
     try:
-        r = requests.get(
-            url,
-            headers=HEADERS,
-            proxies=proxies if tor_enabled else None,
-            timeout=25
-        )
+        r = requests.get(url, headers=HEADERS, proxies=proxies, timeout=25)
+        ct = r.headers.get("Content-Type", "")
 
         result["Status"] = "Active"
         result["HTTP_Code"] = r.status_code
-        result["Server"] = r.headers.get("Server", "Unknown")
-        result["Content-Type"] = r.headers.get("Content-Type", "Unknown")
+        result["Content_Type"] = ct
 
-        if "text/html" in r.headers.get("Content-Type", ""):
+        if "text/html" in ct:
             soup = BeautifulSoup(r.text, "html.parser")
-            result["Title"] = soup.title.string.strip() if soup.title else "No Title"
+            text = soup.get_text()
+            keywords = keyword_scan(text)
+            result["Title"] = soup.title.string if soup.title else "No Title"
+            result["Keywords"] = keywords
+            is_api = False
         else:
-            result["Title"] = "Non-HTML / API Endpoint"
+            result["Title"] = "API / Non-HTML"
+            result["Keywords"] = []
+            is_api = True
+
+        risk = calculate_risk(target, keywords, is_api)
+        result["Risk_Score"] = risk
+
+        if screenshot:
+            safe = target.replace("://", "_").replace("/", "_")
+            filename = f"screenshots/{safe}_{risk}.png"
+            result["Screenshot"] = take_screenshot(url, filename)
 
     except Exception as e:
         result["Status"] = "Inactive"
@@ -85,126 +144,52 @@ def scan_target(target, proxies, tor_enabled):
     return result
 
 
-def find_subdomains(domain, proxies, tor_enabled):
-    subdomains = set()
-    url = f"https://crt.sh/?q=%25.{domain}&output=json"
-
-    try:
-        r = requests.get(
-            url,
-            proxies=proxies if tor_enabled else None,
-            timeout=30
-        )
-        if r.status_code == 200:
-            for entry in r.json():
-                names = entry.get("name_value", "")
-                for name in names.split("\n"):
-                    if "*" not in name:
-                        subdomains.add(name.strip())
-    except:
-        pass
-
-    return subdomains
-
-
 # =========================
-# MAIN
+# ENTRY POINT
 # =========================
 def main():
     parser = argparse.ArgumentParser(
-        description="RECONION - Tor-based OSINT Reconnaissance Tool"
+        description="RECONION – Tor-based OSINT Reconnaissance Tool"
     )
-
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"RECONION v{VERSION}"
-    )
-
-    parser.add_argument(
-        "-t", "--target",
-        help="Single target (onion / website / API)"
-    )
-
-    parser.add_argument(
-        "-f", "--file",
-        help="Targets file (default: targets.txt)"
-    )
-
-    parser.add_argument(
-        "-o", "--output",
-        default="reconion_results.txt",
-        help="Output file name"
-    )
-
-    parser.add_argument(
-        "--active",
-        action="store_true",
-        help="Save only active targets to output"
-    )
-
+    parser.add_argument("targets", nargs="+", help="Targets (.onion / website / API)")
+    parser.add_argument("--json", action="store_true", help="Save JSON output")
+    parser.add_argument("--csv", action="store_true", help="Save CSV output")
+    parser.add_argument("--screenshot", action="store_true", help="Capture screenshots")
+    parser.add_argument("--version", action="version", version=f"RECONION v{VERSION}")
     args = parser.parse_args()
 
     print(BANNER)
 
-    proxies, tor_port = detect_tor_proxy()
-    tor_enabled = True if proxies else False
+    proxies, port = detect_tor()
+    if not proxies:
+        print("[-] Tor not detected. Start Tor Browser.")
+        sys.exit(1)
 
-    print(f"[+] Tor Used : {tor_enabled}")
-    print(f"[+] Tor Port : {tor_port if tor_enabled else 'N/A'}\n")
+    results = []
+    for t in args.targets:
+        print(f"[+] Scanning: {t}")
+        results.append(scan_target(t, proxies, args.screenshot))
 
-    targets = []
+    # TXT output
+    with open("reconion_results.txt", "w", encoding="utf-8") as f:
+        f.write(f"Generated: {datetime.now()}\nTor Port: {port}\n\n")
+        for r in results:
+            for k, v in r.items():
+                f.write(f"{k}: {v}\n")
+            f.write("-" * 60 + "\n")
 
-    if args.target:
-        targets.append(args.target)
+    if args.json:
+        with open("reconion_output.json", "w", encoding="utf-8") as jf:
+            json.dump(results, jf, indent=4)
 
-    elif args.file:
-        try:
-            with open(args.file, "r") as f:
-                targets = [line.strip() for line in f if line.strip()]
-        except FileNotFoundError:
-            print("[-] Target file not found")
-            sys.exit(1)
+    if args.csv:
+        with open("reconion_output.csv", "w", newline="", encoding="utf-8") as cf:
+            writer = csv.DictWriter(cf, fieldnames=results[0].keys())
+            writer.writeheader()
+            writer.writerows(results)
 
-    else:
-        try:
-            with open("targets.txt", "r") as f:
-                targets = [line.strip() for line in f if line.strip()]
-        except FileNotFoundError:
-            print("[-] targets.txt not found")
-            sys.exit(1)
-
-    with open(args.output, "w", encoding="utf-8") as report, \
-         open("subdomains.txt", "w", encoding="utf-8") as subs:
-
-        report.write("RECONION RECON REPORT\n")
-        report.write(f"Generated : {datetime.now()}\n")
-        report.write(f"Tor Used  : {tor_enabled}\n")
-        report.write(f"Tor Port  : {tor_port if tor_enabled else 'N/A'}\n\n")
-
-        for target in targets:
-            print(f"[+] Scanning: {target}")
-            data = scan_target(target, proxies, tor_enabled)
-
-            if args.active and data["Status"] != "Active":
-                continue
-
-            report.write(f"Target: {target}\n")
-            for k, v in data.items():
-                report.write(f"{k}: {v}\n")
-            report.write("-" * 60 + "\n")
-
-            if not target.endswith(".onion"):
-                domain = urlparse(normalize_url(target)).netloc
-                subs_found = find_subdomains(domain, proxies, tor_enabled)
-                for s in sorted(subs_found):
-                    subs.write(s + "\n")
-
-    print("\n✅ RECONION completed")
-    print(f"📄 Output : {args.output}")
-    print("📄 Subdomains : subdomains.txt")
+    print("\n✅ RECONION completed successfully")
 
 
 if __name__ == "__main__":
     main()
-
