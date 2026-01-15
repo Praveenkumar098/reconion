@@ -6,48 +6,57 @@ import json
 import csv
 import sys
 import os
+from collections import Counter
 
 # =========================
 # METADATA
 # =========================
-VERSION = "1.4"
-
-KEYWORDS = [
-    "drugs", "carding", "weapons",
-    "malware", "leaks", "crypto",
-    "bitcoin", "hacking"
-]
-
-HEADERS = {
-    "User-Agent": "RECONION-OSINT"
-}
+VERSION = "2.0"
+HEADERS = {"User-Agent": "RECONION-OSINT"}
 
 # =========================
-# BANNER (CORRECT)
+# TERMINAL LOGO (ASCII)
 # =========================
 BANNER = r"""
-██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗██╗ ██████╗ ███╗   ██╗
-██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║██║██╔═══██╗████╗  ██║
-██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║██║██║   ██║██╔██╗ ██║
-██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║██║██║   ██║██║╚██╗██║
-██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║██║╚██████╔╝██║ ╚████║
-╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝ v1.4
+ ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗██╗ ██████╗ ███╗   ██╗
+ ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║██║██╔═══██╗████╗  ██║
+ ██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║██║██║   ██║██╔██╗ ██║
+ ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║██║██║   ██║██║╚██╗██║
+ ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║██║╚██████╔╝██║ ╚████║
+ ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+              Tor-based OSINT Reconnaissance Framework
+                           v2.0
 """
+
+# =========================
+# KEYWORDS (CATEGORIZED)
+# =========================
+KEYWORD_CATEGORIES = {
+    "Scam": ["scam", "fraud", "fake", "phishing"],
+    "Crypto": ["crypto", "bitcoin", "wallet", "investment"],
+    "Malware": ["malware", "hacking", "exploit", "ransomware"],
+    "Drugs": ["drugs", "cocaine", "heroin", "lsd"],
+    "Weapons": ["weapons", "guns", "ammo"]
+}
 
 # =========================
 # TOR DETECTION
 # =========================
 def detect_tor():
-    for port in [9050, 9150]:
+    for port in (9050, 9150):
         proxies = {
             "http": f"socks5h://127.0.0.1:{port}",
             "https": f"socks5h://127.0.0.1:{port}"
         }
         try:
-            requests.get("https://check.torproject.org", proxies=proxies, timeout=8)
+            requests.get(
+                "https://check.torproject.org",
+                proxies=proxies,
+                timeout=8
+            )
             return proxies, port
         except:
-            continue
+            pass
     return None, None
 
 
@@ -60,82 +69,105 @@ def normalize(target):
 
 
 # =========================
-# ANALYSIS FUNCTIONS
+# PASSIVE SECURITY CHECKS
 # =========================
-def keyword_scan(text):
-    return [k for k in KEYWORDS if k in text.lower()]
+def security_checks(headers):
+    issues = []
+    if "X-Frame-Options" not in headers:
+        issues.append("Missing X-Frame-Options")
+    if "Content-Security-Policy" not in headers:
+        issues.append("Missing Content-Security-Policy")
+    if "X-Content-Type-Options" not in headers:
+        issues.append("Missing X-Content-Type-Options")
+    return issues
 
 
-def calculate_risk(target, keywords, is_api):
+def tech_fingerprint(headers, soup):
+    tech = []
+    if headers.get("Server"):
+        tech.append(f"Server: {headers.get('Server')}")
+    gen = soup.find("meta", attrs={"name": "generator"})
+    if gen and gen.get("content"):
+        tech.append(f"Generator: {gen.get('content')}")
+    return tech
+
+
+# =========================
+# CONTENT ANALYSIS
+# =========================
+def analyze_content(text):
+    findings = Counter()
+    for category, words in KEYWORD_CATEGORIES.items():
+        for w in words:
+            if w in text:
+                findings[category] += 1
+    return findings
+
+
+def classify_intent(findings):
+    if not findings:
+        return "Informational / Unknown"
+    return max(findings, key=findings.get)
+
+
+def calculate_scam_score(findings, is_onion, security_issues):
     score = 0
-    if target.endswith(".onion"):
-        score += 2
-    if keywords:
-        score += 2
-    if is_api:
-        score += 1
-
-    if score >= 4:
-        return "HIGH"
-    elif score >= 2:
-        return "MEDIUM"
-    return "LOW"
+    if "Scam" in findings:
+        score += 40
+    if "Crypto" in findings:
+        score += 20
+    if "Malware" in findings:
+        score += 20
+    if is_onion:
+        score += 10
+    score += min(len(security_issues) * 5, 20)
+    return min(score, 100)
 
 
-def take_screenshot(url, filename):
-    try:
-        from selenium import webdriver
-        from selenium.webdriver.firefox.options import Options
+def ai_summary(target, intent, score, tech):
+    summary = f"The site {target} appears to be related to {intent.lower()} activity. "
+    if score >= 70:
+        summary += "It shows strong indicators of high-risk or scam-related behavior. "
+    elif score >= 40:
+        summary += "It shows moderate risk indicators based on passive analysis. "
+    else:
+        summary += "It appears low risk based on the available indicators. "
 
-        os.makedirs("screenshots", exist_ok=True)
+    if tech:
+        summary += "Observed technologies include: " + ", ".join(tech) + "."
 
-        options = Options()
-        options.add_argument("--headless")
-
-        driver = webdriver.Firefox(options=options)
-        driver.get(url)
-        driver.save_screenshot(filename)
-        driver.quit()
-
-        return "Captured"
-    except:
-        return "Skipped"
+    return summary
 
 
 # =========================
-# MAIN SCAN
+# SCAN TARGET
 # =========================
-def scan_target(target, proxies, screenshot):
+def scan_target(target, proxies):
     url = normalize(target)
     result = {"Target": target}
 
     try:
         r = requests.get(url, headers=HEADERS, proxies=proxies, timeout=25)
-        ct = r.headers.get("Content-Type", "")
+        soup = BeautifulSoup(r.text, "html.parser")
+        text = soup.get_text().lower()
 
-        result["Status"] = "Active"
-        result["HTTP_Code"] = r.status_code
-        result["Content_Type"] = ct
+        sec_issues = security_checks(r.headers)
+        tech = tech_fingerprint(r.headers, soup)
+        findings = analyze_content(text)
+        intent = classify_intent(findings)
+        score = calculate_scam_score(findings, target.endswith(".onion"), sec_issues)
+        summary = ai_summary(target, intent, score, tech)
 
-        if "text/html" in ct:
-            soup = BeautifulSoup(r.text, "html.parser")
-            text = soup.get_text()
-            keywords = keyword_scan(text)
-            result["Title"] = soup.title.string if soup.title else "No Title"
-            result["Keywords"] = keywords
-            is_api = False
-        else:
-            result["Title"] = "API / Non-HTML"
-            result["Keywords"] = []
-            is_api = True
-
-        risk = calculate_risk(target, keywords, is_api)
-        result["Risk_Score"] = risk
-
-        if screenshot:
-            safe = target.replace("://", "_").replace("/", "_")
-            filename = f"screenshots/{safe}_{risk}.png"
-            result["Screenshot"] = take_screenshot(url, filename)
+        result.update({
+            "Status": "Active",
+            "HTTP_Code": r.status_code,
+            "Intent": intent,
+            "Keyword_Findings": dict(findings),
+            "Security_Issues": sec_issues,
+            "Technology": tech,
+            "Scam_Score": score,
+            "AI_Summary": summary
+        })
 
     except Exception as e:
         result["Status"] = "Inactive"
@@ -145,17 +177,70 @@ def scan_target(target, proxies, screenshot):
 
 
 # =========================
-# ENTRY POINT
+# HTML DASHBOARD
+# =========================
+def generate_html(results):
+    os.makedirs("reports", exist_ok=True)
+    path = "reports/reconion_dashboard.html"
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"""
+<!DOCTYPE html>
+<html>
+<head>
+<title>RECONION Dashboard</title>
+<style>
+body {{ background:#0d1117; color:#e6edf3; font-family: Arial; }}
+.card {{ background:#161b22; margin:20px; padding:20px; border-radius:12px; }}
+.low {{ color:#2ea043; }}
+.medium {{ color:#d29922; }}
+.high {{ color:#f85149; }}
+.bar {{ height:12px; background:#30363d; border-radius:6px; }}
+.fill {{ height:100%; }}
+</style>
+</head>
+<body>
+
+<h1 align="center">🧅 RECONION Intelligence Dashboard</h1>
+<p align="center">Generated: {datetime.now()}</p>
+""")
+
+        for r in results:
+            score = r.get("Scam_Score", 0)
+            if score >= 70:
+                cls, col = "high", "#f85149"
+            elif score >= 40:
+                cls, col = "medium", "#d29922"
+            else:
+                cls, col = "low", "#2ea043"
+
+            f.write(f"""
+<div class="card">
+<h2>{r.get("Target")}</h2>
+<b>Status:</b> {r.get("Status")}<br>
+<b>Intent:</b> {r.get("Intent")}<br>
+<b>Scam Score:</b> <span class="{cls}">{score}/100</span>
+<div class="bar"><div class="fill" style="width:{score}%; background:{col};"></div></div>
+<b>Technology:</b> {", ".join(r.get("Technology", []))}<br>
+<b>Security Issues:</b> {", ".join(r.get("Security_Issues", []))}<br>
+<b>AI Summary:</b><br>{r.get("AI_Summary")}
+</div>
+""")
+
+        f.write("</body></html>")
+
+    return path
+
+
+# =========================
+# MAIN
 # =========================
 def main():
-    parser = argparse.ArgumentParser(
-        description="RECONION – Tor-based OSINT Reconnaissance Tool"
-    )
-    parser.add_argument("targets", nargs="+", help="Targets (.onion / website / API)")
+    parser = argparse.ArgumentParser(description="RECONION v2.0 – Advanced OSINT Tool")
+    parser.add_argument("targets", nargs="+", help="Targets (.onion / clearnet)")
     parser.add_argument("--json", action="store_true", help="Save JSON output")
     parser.add_argument("--csv", action="store_true", help="Save CSV output")
-    parser.add_argument("--screenshot", action="store_true", help="Capture screenshots")
-    parser.add_argument("--version", action="version", version=f"RECONION v{VERSION}")
+    parser.add_argument("--html", action="store_true", help="Generate HTML dashboard")
     args = parser.parse_args()
 
     print(BANNER)
@@ -165,28 +250,30 @@ def main():
         print("[-] Tor not detected. Start Tor Browser.")
         sys.exit(1)
 
-    results = []
-    for t in args.targets:
-        print(f"[+] Scanning: {t}")
-        results.append(scan_target(t, proxies, args.screenshot))
+    results = [scan_target(t, proxies) for t in args.targets]
 
-    # TXT output
+    # TXT (always)
     with open("reconion_results.txt", "w", encoding="utf-8") as f:
-        f.write(f"Generated: {datetime.now()}\nTor Port: {port}\n\n")
         for r in results:
-            for k, v in r.items():
-                f.write(f"{k}: {v}\n")
-            f.write("-" * 60 + "\n")
+            f.write(json.dumps(r, indent=2) + "\n\n")
 
+    # JSON
     if args.json:
         with open("reconion_output.json", "w", encoding="utf-8") as jf:
             json.dump(results, jf, indent=4)
 
+    # CSV (schema-safe)
     if args.csv:
+        fields = sorted({k for r in results for k in r})
         with open("reconion_output.csv", "w", newline="", encoding="utf-8") as cf:
-            writer = csv.DictWriter(cf, fieldnames=results[0].keys())
+            writer = csv.DictWriter(cf, fieldnames=fields)
             writer.writeheader()
             writer.writerows(results)
+
+    # HTML DASHBOARD
+    if args.html:
+        report = generate_html(results)
+        print(f"[+] HTML dashboard generated: {report}")
 
     print("\n✅ RECONION completed successfully")
 
