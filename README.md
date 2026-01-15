@@ -58,6 +58,24 @@ It performs **passive, read-only analysis** focused on **intelligence gathering*
   - Intent & summary cards
   - Analyst-friendly view
 
+### 🧠 Analysis Details
+
+🔐 Passive Security Checks
+
+Missing security headers (CSP, X-Frame-Options, etc.)
+
+Header-based misconfiguration indicators
+
+No intrusive testing
+
+### 🧩 Technology Fingerprinting
+
+Server header identification
+
+HTML meta generator detection
+
+Passive stack inference
+
 ---
 
 ## ⚠️ Disclaimer
@@ -128,31 +146,15 @@ python reconion.py example.com --html
 | `reconion_output.csv`             | CSV output (schema-safe)           |
 | `reports/reconion_dashboard.html` | Offline SOC-style dashboard        |
 
+---
 
-🧠 Analysis Details
-🔐 Passive Security Checks
+##📄 Output Details (reconion_results.txt)
 
-Missing security headers (CSP, X-Frame-Options, etc.)
+For each target, the report includes:
 
-Header-based misconfiguration indicators
+Target identifier (.onion / domain / API)
 
-No intrusive testing
-
-🧩 Technology Fingerprinting
-
-Server header identification
-
-HTML meta generator detection
-
-Passive stack inference
-
-
-
-
-📄 Output
-reconion_results.txt
-
-Target status (Active / Inactive)
+Status (Active / Inactive)
 
 HTTP status code
 
@@ -162,16 +164,46 @@ Content-Type
 
 Page title
 
+Intent classification
+
+Categorized keyword findings
+
+Passive security issues
+
+Detected technology / stack (if available)
+
+Scam score (0–100)
+
+AI-style human-readable summary
+
 Error details (if any)
 
-subdomains.txt
 
-Enumerated subdomains
-
-Generated only for clearnet domains
 
 ---
-👨‍💻 Developer
+
+## 🖥️ HTML Dashboard UI
+
+RECONION generates an offline SOC-style dashboard featuring:
+
+Scam score progress bars
+
+Risk color indicators
+
+Intent classification
+
+Technology stack
+
+Security issues
+
+AI-style summaries
+
+Open manually:
+```bash
+reports/reconion_dashboard.html
+
+```
+## 👨‍💻 Developer
 
 Praveen Kumar
 
@@ -180,3 +212,17 @@ Cybersecurity & OSINT Enthusiast
 GitHub: https://github.com/Praveenkumar098
 
 
+## 📜 License
+
+This project is licensed under the MIT License.
+
+
+## ⭐ Support
+
+If you find RECONION useful:
+
+⭐ Star the repository
+
+🍴 Fork it
+
+🧠 Share it with the OSINT community
